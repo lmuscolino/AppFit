@@ -8,7 +8,7 @@
 # ============================================================
 
 # ---- Configurazione ----------------------------------------
-JAVA_HOME        := /home/codespace/java/21.0.9-ms
+JAVA_HOME        := /home/lorenzo/java17
 ANDROID_SDK_DIR  := $(HOME)/android-sdk
 CMDLINE_TOOLS_VER := 11076708
 CMDLINE_TOOLS_URL := https://dl.google.com/android/repository/commandlinetools-linux-$(CMDLINE_TOOLS_VER)_latest.zip
@@ -30,7 +30,7 @@ export ANDROID_SDK_ROOT := $(ANDROID_SDK_DIR)
 export PATH := $(JAVA_HOME)/bin:$(ANDROID_SDK_DIR)/platform-tools:$(ANDROID_SDK_DIR)/cmdline-tools/latest/bin:$(PATH)
 
 # ============================================================
-.PHONY: all debug release clean install sdk help
+.PHONY: all debug release clean install sdk test help
 
 all: debug
 
@@ -97,6 +97,14 @@ install: debug
 	@echo ">>> Installazione APK su dispositivo..."
 	$(ANDROID_SDK_DIR)/platform-tools/adb install -r $(APK_DEBUG)
 
+# ---- Test JUnit (JVM, senza device) ----------------------
+test: local.properties gradle-wrapper
+	@echo ""
+	@echo ">>> Esecuzione test JUnit..."
+	$(GRADLEW) :app:testDebugUnitTest
+	@echo ""
+	@echo "✓ Report: app/build/reports/tests/testDebugUnitTest/index.html"
+
 # ---- Pulisci build ----------------------------------------
 clean:
 	@echo ">>> Pulizia build..."
@@ -119,6 +127,7 @@ help:
 	@echo "  make release  → Compila APK release non firmato"
 	@echo "  make install  → Installa APK debug su dispositivo ADB"
 	@echo "  make sdk      → Scarica e configura solo l'Android SDK"
+	@echo "  make test     → Esegue i test JUnit (senza device, veloce)"
 	@echo "  make clean    → Pulisce i file di build"
 	@echo "  make clean-all → Rimuove build + Android SDK"
 	@echo ""

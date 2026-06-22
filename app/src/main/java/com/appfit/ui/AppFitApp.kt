@@ -1,50 +1,87 @@
 package com.appfit.ui
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.*
 import com.appfit.ui.activity.ActivityDetailScreen
 import com.appfit.ui.calendar.CalendarScreen
+import com.appfit.ui.dashboard.DashboardScreen
 import com.appfit.ui.diet.MealDetailScreen
 import com.appfit.ui.chat.ChatScreen
 import com.appfit.ui.debug.DbViewerScreen
 import com.appfit.ui.diet.DietScreen
+import com.appfit.ui.favorites.FavoritesScreen
+import com.appfit.ui.family.FamilyScreen
+import com.appfit.ui.reminders.ReminderScreen
+import com.appfit.ui.pendinginbox.PendingInboxScreen
 import com.appfit.ui.navigation.Screen
 import com.appfit.ui.navigation.bottomNavItems
 import com.appfit.ui.navigation.drawerNavItems
 import com.appfit.ui.onboarding.OnboardingScreen
 import com.appfit.ui.onboarding.OnboardingViewModel
 import com.appfit.ui.profile.ProfileScreen
+import com.appfit.ui.profile.ProfileViewModel
 import com.appfit.ui.shopping.ShoppingListScreen
 import com.appfit.ui.workouts.WorkoutsScreen
 import kotlinx.coroutines.launch
 
 @Composable
-fun AppFitApp() {
+fun AppFitApp(openPendingInbox: Boolean = false) {
     val navController = rememberNavController()
     val onboardingViewModel: OnboardingViewModel = hiltViewModel()
     val isApiKeySet by onboardingViewModel.isApiKeySet.collectAsState()
 
-    val startDestination = if (isApiKeySet) Screen.Calendar.route else Screen.Onboarding.route
+    LaunchedEffect(openPendingInbox, isApiKeySet) {
+        if (openPendingInbox && isApiKeySet) {
+            navController.navigate(Screen.PendingInbox.route) { launchSingleTop = true }
+        }
+    }
+
+    val profileViewModel: ProfileViewModel = hiltViewModel()
+    val currentProvider by profileViewModel.currentProvider.collectAsStateWithLifecycle()
+    val currentModel by profileViewModel.currentModel.collectAsStateWithLifecycle()
+
+    val pendingConsentIntent by profileViewModel.pendingConsentIntent.collectAsStateWithLifecycle()
+    val googleConsentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { profileViewModel.clearPendingConsentIntent() }
+    LaunchedEffect(pendingConsentIntent) {
+        pendingConsentIntent?.let { googleConsentLauncher.launch(it) }
+    }
+
+    val startDestination = if (isApiKeySet) Screen.Dashboard.route else Screen.Onboarding.route
 
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
 
+    val isMainScreen = bottomNavItems.any { it.screen.route == currentDestination?.route } ||
+            currentDestination?.route == Screen.Chat.route ||
+            currentDestination?.route == Screen.Reminders.route ||
+            currentDestination?.route == Screen.Family.route ||
+            currentDestination?.route == Screen.PendingInbox.route
     val showBottomBar = currentDestination?.route != Screen.Onboarding.route &&
             currentDestination?.route != Screen.Profile.route &&
-            bottomNavItems.any { it.screen.route == currentDestination?.route }
+            currentDestination?.route != Screen.Favorites.route &&
+            isMainScreen
+    val showChatFab = showBottomBar && currentDestination?.route != Screen.Chat.route
 
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -56,6 +93,7 @@ fun AppFitApp() {
         drawerContent = {
             AppFitDrawerContent(
                 currentRoute = currentDestination?.route,
+                aiModelLabel = currentModel,
                 onNavigate = { screen ->
                     scope.launch { drawerState.close() }
                     navController.navigate(screen.route) {
@@ -76,14 +114,17 @@ fun AppFitApp() {
                         bottomNavItems.forEach { item ->
                             NavigationBarItem(
                                 icon = { Icon(item.icon, contentDescription = item.label) },
-                                label = { Text(item.label) },
+                                label = { Text(item.label, maxLines = 1, softWrap = false) },
                                 selected = currentDestination?.hierarchy?.any {
                                     it.route == item.screen.route
                                 } == true,
                                 onClick = {
                                     navController.navigate(item.screen.route) {
-                                        popUpTo(navController.graph.findStartDestination().id) {
+                                        // Usa Dashboard come radice esplicita invece di findStartDestination()
+                                        // che potrebbe restituire Onboarding se il grafo è stato inizializzato con esso
+                                        popUpTo(Screen.Dashboard.route) {
                                             saveState = true
+                                            inclusive = false
                                         }
                                         launchSingleTop = true
                                         restoreState = true
@@ -91,6 +132,28 @@ fun AppFitApp() {
                                 }
                             )
                         }
+                    }
+                }
+            },
+            floatingActionButton = {
+                if (showChatFab) {
+                    FloatingActionButton(
+                        onClick = {
+                            navController.navigate(Screen.Chat.route) {
+                                popUpTo(Screen.Dashboard.route) {
+                                    saveState = true
+                                }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        },
+                        containerColor = MaterialTheme.colorScheme.primary
+                    ) {
+                        Icon(
+                            Icons.Filled.SmartToy,
+                            contentDescription = "AI Chat",
+                            tint = androidx.compose.ui.graphics.Color.White
+                        )
                     }
                 }
             }
@@ -103,8 +166,18 @@ fun AppFitApp() {
                 composable(Screen.Onboarding.route) {
                     OnboardingScreen(
                         onComplete = {
-                            navController.navigate(Screen.Calendar.route) {
+                            navController.navigate(Screen.Dashboard.route) {
                                 popUpTo(Screen.Onboarding.route) { inclusive = true }
+                            }
+                        }
+                    )
+                }
+                composable(Screen.Dashboard.route) {
+                    DashboardScreen(
+                        onOpenDrawer = openDrawer,
+                        onNavigateToCalendar = {
+                            navController.navigate(Screen.Calendar.route) {
+                                launchSingleTop = true
                             }
                         }
                     )
@@ -169,6 +242,18 @@ fun AppFitApp() {
                 composable(Screen.Profile.route) {
                     ProfileScreen(onBack = { navController.popBackStack() })
                 }
+                composable(Screen.Favorites.route) {
+                    FavoritesScreen(onBack = { navController.popBackStack() })
+                }
+                composable(Screen.Reminders.route) {
+                    ReminderScreen(onOpenDrawer = openDrawer)
+                }
+                composable(Screen.Family.route) {
+                    FamilyScreen(onOpenDrawer = openDrawer)
+                }
+                composable(Screen.PendingInbox.route) {
+                    PendingInboxScreen(onOpenDrawer = openDrawer)
+                }
                 composable(
                     route = Screen.ActivityDetail.route,
                     arguments = listOf(
@@ -189,12 +274,18 @@ fun AppFitApp() {
 @Composable
 private fun AppFitDrawerContent(
     currentRoute: String?,
+    aiModelLabel: String = "",
     onNavigate: (Screen) -> Unit
 ) {
     val primaryColor = MaterialTheme.colorScheme.primary
     val secondaryColor = MaterialTheme.colorScheme.secondary
 
     ModalDrawerSheet {
+        Column(
+            modifier = Modifier
+                .fillMaxHeight()
+                .verticalScroll(rememberScrollState())
+        ) {
         // Header con gradiente
         Box(
             modifier = Modifier
@@ -227,6 +318,23 @@ private fun AppFitDrawerContent(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f)
                 )
+                if (aiModelLabel.isNotBlank()) {
+                    Spacer(Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Filled.SmartToy,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.9f),
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            aiModelLabel.toShortModelName(),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.9f)
+                        )
+                    }
+                }
             }
         }
 
@@ -249,5 +357,18 @@ private fun AppFitDrawerContent(
                 )
             )
         }
+        } // chiude Column scrollabile
     }
+}
+
+private fun String.toShortModelName(): String = when {
+    contains("opus") -> "Claude Opus"
+    contains("sonnet") -> "Claude Sonnet"
+    contains("haiku") -> "Claude Haiku"
+    contains("2.5-pro") -> "Gemini 2.5 Pro"
+    contains("2.5-flash-lite") -> "Gemini 2.5 Flash Lite"
+    contains("2.5-flash") -> "Gemini 2.5 Flash"
+    contains("3.1-flash-lite") -> "Gemini 3.1 Flash Lite"
+    contains("3.1-flash") -> "Gemini 3.1 Flash"
+    else -> this
 }

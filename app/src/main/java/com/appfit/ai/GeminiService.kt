@@ -6,6 +6,7 @@ import com.appfit.data.model.ChatRole
 import com.appfit.data.model.DailyPlan
 import com.appfit.data.repository.ActivityRepository
 import com.appfit.data.repository.DietRepository
+import com.appfit.data.repository.FavoriteRecipeRepository
 import com.google.gson.Gson
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
@@ -27,7 +28,8 @@ class GeminiService @Inject constructor(
     private val toolApprovalManager: ToolApprovalManager,
     private val activityRepository: ActivityRepository,
     private val dietRepository: DietRepository,
-    private val userProfileProvider: UserProfileProvider
+    private val userProfileProvider: UserProfileProvider,
+    private val favoriteRecipeRepository: FavoriteRecipeRepository
 ) : AiService {
 
     private val gson = Gson()
@@ -47,14 +49,15 @@ class GeminiService @Inject constructor(
         debugLogger.log("🚀 Gemini — Invio messaggio: \"${userMessage.take(80)}\"")
 
         val userProfile = userProfileProvider.getProfile()
-        val systemPrompt = SystemPromptBuilder.build(currentPlan, userProfile)
+        val favorites = favoriteRecipeRepository.getAllFavoritesOnce()
+        val systemPrompt = SystemPromptBuilder.build(currentPlan, userProfile, favorites)
         toolExecutor.resetModifiedFlag()
 
         // Build conversation contents — Gemini requires strictly alternating user/model turns.
         // Filter history to maintain alternation, then append the new user message.
         val contents = JsonArray()
         val sanitized = mutableListOf<ChatMessage>()
-        for (msg in conversationHistory.takeLast(20)) {
+        for (msg in conversationHistory.takeLast(10)) {
             if (sanitized.isEmpty() || sanitized.last().role != msg.role) {
                 sanitized.add(msg)
             }
@@ -94,7 +97,7 @@ class GeminiService @Inject constructor(
 
         val tools = buildGeminiTools()
         var iterations = 0
-        val maxIterations = 5
+        val maxIterations = 8
         var finalText = ""
 
         while (iterations < maxIterations) {
@@ -165,7 +168,7 @@ class GeminiService @Inject constructor(
             })
 
             // Process tool calls
-            val silentTools = setOf("get_current_plan", "save_user_preferences")
+            val silentTools = setOf("get_current_plan", "save_user_preferences", "update_user_notes", "save_workout_schedule", "update_profile_data", "add_reminder")
             val readOnlyFc = functionCallParts.filter { it.get("name").asString in silentTools }
             val writeFc = functionCallParts.filter { it.get("name").asString !in silentTools }
 
@@ -330,6 +333,11 @@ class GeminiService @Inject constructor(
                 """{"type":"object","properties":{"title":{"type":"string"},"description":{"type":"string"},"type":{"type":"string","enum":["CARDIO","STRENGTH","FLEXIBILITY","YOGA","REST","CUSTOM"]},"duration_minutes":{"type":"integer"},"scheduled_date":{"type":"string"},"scheduled_time":{"type":"string"},"calories_burned":{"type":"integer"}},"required":["title","type","duration_minutes","scheduled_date"]}"""
             ),
             Triple(
+                "update_activity",
+                "Modifica un'attività esistente nel calendario (titolo, tipo, durata, data, orario, calorie). Usa quando l'utente vuole modificare un'attività già pianificata. Aggiorna solo i campi forniti. Sincronizza automaticamente con Google Calendar.",
+                """{"type":"object","properties":{"activity_id":{"type":"integer","description":"ID dell'attività da aggiornare"},"title":{"type":"string"},"description":{"type":"string"},"type":{"type":"string","enum":["CARDIO","STRENGTH","FLEXIBILITY","YOGA","REST","CUSTOM"]},"duration_minutes":{"type":"integer"},"scheduled_date":{"type":"string","description":"Data in formato YYYY-MM-DD"},"scheduled_time":{"type":"string","description":"Orario in formato HH:mm"},"calories_burned":{"type":"integer"}},"required":["activity_id"]}"""
+            ),
+            Triple(
                 "update_meal",
                 "Aggiunge o modifica un pasto nel piano dieta dell'utente",
                 """{"type":"object","properties":{"name":{"type":"string"},"description":{"type":"string"},"type":{"type":"string","enum":["BREAKFAST","LUNCH","DINNER","SNACK"]},"scheduled_date":{"type":"string"},"ingredients":{"type":"array","items":{"type":"string"}},"calories_kcal":{"type":"integer"},"protein_g":{"type":"integer"},"carbs_g":{"type":"integer"},"fat_g":{"type":"integer"}},"required":["name","type","scheduled_date"]}"""
@@ -348,6 +356,26 @@ class GeminiService @Inject constructor(
                 "save_user_preferences",
                 "Salva le preferenze dell'utente rilevate dalla conversazione",
                 """{"type":"object","properties":{"preferred_workout_types":{"type":"array","items":{"type":"string","enum":["CARDIO","STRENGTH","FLEXIBILITY","YOGA","REST","CUSTOM"]}},"dietary_restrictions":{"type":"array","items":{"type":"string"}},"fitness_goal":{"type":"string","enum":["weight_loss","muscle_gain","endurance","flexibility","general_health"]}},"required":[]}"""
+            ),
+            Triple(
+                "update_user_notes",
+                "Gestisce le note personali dell'utente. Usa automaticamente quando l'utente condivide info personali rilevanti (infortuni, condizioni mediche, orari preferiti, ecc.)",
+                """{"type":"object","properties":{"action":{"type":"string","enum":["add","update","delete","clear"]},"id":{"type":"string"},"content":{"type":"string"}},"required":["action"]}"""
+            ),
+            Triple(
+                "save_workout_schedule",
+                "Salva le fasce orarie e i giorni di allenamento dell'utente. Usa automaticamente quando l'utente indica giorni e/o orari preferiti per allenarsi. Sostituisce completamente la schedule precedente.",
+                """{"type":"object","properties":{"slots":{"type":"array","items":{"type":"object","properties":{"days":{"type":"array","items":{"type":"string","enum":["MONDAY","TUESDAY","WEDNESDAY","THURSDAY","FRIDAY","SATURDAY","SUNDAY"]}},"start_time":{"type":"string"},"end_time":{"type":"string"}},"required":["days"]}}},"required":["slots"]}"""
+            ),
+            Triple(
+                "add_reminder",
+                "Aggiunge un promemoria (bolletta, scadenza auto, documento, abbonamento, ecc.). Usa automaticamente quando l'utente menziona scadenze da ricordare.",
+                """{"type":"object","properties":{"title":{"type":"string"},"description":{"type":"string"},"category":{"type":"string","enum":["BILL","CAR","DOCUMENT","HEALTH","SUBSCRIPTION","OTHER"]},"due_date":{"type":"string"},"amount":{"type":"number"},"is_important":{"type":"boolean"}},"required":["title","category"]}"""
+            ),
+            Triple(
+                "update_profile_data",
+                "Salva i dati fisici e il livello di forma dell'utente. Usa dopo aver raccolto i dati mancanti necessari per generare un piano. Aggiorna solo i campi forniti.",
+                """{"type":"object","properties":{"sex":{"type":"string","enum":["male","female"]},"weight_kg":{"type":"number"},"height_cm":{"type":"integer"},"age":{"type":"integer"},"fitness_level":{"type":"string","enum":["beginner","intermediate","advanced"]}},"required":[]}"""
             )
         ).forEach { (name, description, schemaJson) ->
             declarations.add(JsonObject().apply {
@@ -386,6 +414,20 @@ class GeminiService @Inject constructor(
                     hasDuplicate = existing != null,
                     duplicateId = existing?.id,
                     duplicateName = existing?.let { "${it.title} (${it.type.name})" }
+                )
+            }
+            "update_activity" -> {
+                val activityId = input["activity_id"]?.asLong ?: 0L
+                val existing = activityRepository.getActivityById(activityId)
+                val title = input["title"]?.asString ?: existing?.title ?: "Attività $activityId"
+                val dateStr = input["scheduled_date"]?.asString ?: existing?.scheduledDate?.toString() ?: LocalDate.now().toString()
+                val dur = input["duration_minutes"]?.asInt ?: existing?.durationMinutes ?: 0
+                ApprovalItem(
+                    toolUseId = toolUseId,
+                    toolName = toolName,
+                    inputJson = inputJson,
+                    displayTitle = "Modifica: $title ($dur min)",
+                    displayDetail = "ID $activityId · $dateStr"
                 )
             }
             "update_meal" -> {

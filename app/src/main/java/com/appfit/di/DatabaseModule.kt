@@ -36,4 +36,13 @@ object DatabaseModule {
 
     @Provides
     fun provideChatMessageDao(db: AppDatabase): ChatMessageDao = db.chatMessageDao()
+
+    @Provides
+    fun provideFavoriteRecipeDao(db: AppDatabase): FavoriteRecipeDao = db.favoriteRecipeDao()
+
+    @Provides
+    fun provideReminderDao(db: AppDatabase): ReminderDao = db.reminderDao()
+
+    @Provides
+    fun providePendingEmailItemDao(db: AppDatabase): PendingEmailItemDao = db.pendingEmailItemDao()
 }

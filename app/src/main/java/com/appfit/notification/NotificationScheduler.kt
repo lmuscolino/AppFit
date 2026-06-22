@@ -16,7 +16,7 @@ class NotificationScheduler @Inject constructor(
     private val activityRepository: ActivityRepository
 ) {
     companion object {
-        private const val REMINDER_ADVANCE_MINUTES = 30L
+        const val REMINDER_ADVANCE_MINUTES = 30L
     }
 
     suspend fun rescheduleAll() {
@@ -31,7 +31,8 @@ class NotificationScheduler @Inject constructor(
                     title = activity.title,
                     durationMinutes = activity.durationMinutes,
                     reminderAt = LocalDateTime.of(activity.scheduledDate, activity.scheduledTime)
-                        .minusMinutes(REMINDER_ADVANCE_MINUTES)
+                        .minusMinutes(REMINDER_ADVANCE_MINUTES),
+                    isImportant = activity.isImportant
                 )
             }
         }
@@ -41,19 +42,29 @@ class NotificationScheduler @Inject constructor(
         activityId: Long,
         title: String,
         durationMinutes: Int,
-        reminderAt: LocalDateTime
+        reminderAt: LocalDateTime,
+        isImportant: Boolean = false
     ) {
-        val delayMs = reminderAt
+        val activityStartMs = reminderAt
+            .plusMinutes(REMINDER_ADVANCE_MINUTES)
             .atZone(ZoneId.systemDefault())
             .toInstant()
-            .toEpochMilli() - System.currentTimeMillis()
+            .toEpochMilli()
 
-        if (delayMs <= 0) return
+        // Attività già iniziata o terminata → nessuna notifica
+        if (activityStartMs <= System.currentTimeMillis()) return
+
+        val delayMs = (reminderAt
+            .atZone(ZoneId.systemDefault())
+            .toInstant()
+            .toEpochMilli() - System.currentTimeMillis())
+            .coerceAtLeast(0L)   // se la finestra dei 30min è già passata, manda subito
 
         val inputData = workDataOf(
             "activity_id" to activityId,
             "activity_title" to title,
-            "duration_minutes" to durationMinutes
+            "duration_minutes" to durationMinutes,
+            "is_important" to isImportant
         )
 
         val request = OneTimeWorkRequestBuilder<ActivityReminderWorker>()

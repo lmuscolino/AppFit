@@ -7,7 +7,7 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface ChatMessageDao {
 
-    @Query("SELECT * FROM chat_messages ORDER BY timestamp ASC")
+    @Query("SELECT * FROM (SELECT * FROM chat_messages ORDER BY timestamp DESC LIMIT 50) ORDER BY timestamp ASC")
     fun getAllMessages(): Flow<List<ChatMessage>>
 
     @Query("SELECT * FROM chat_messages ORDER BY timestamp DESC LIMIT :n")

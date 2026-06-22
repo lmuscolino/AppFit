@@ -1,9 +1,11 @@
 package com.appfit.ui.shopping
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -11,11 +13,13 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.appfit.data.model.ShoppingItem
+import com.appfit.ui.theme.GradientTopAppBar
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -38,6 +42,10 @@ fun ShoppingListScreen(
     var showPickStart by remember { mutableStateOf(false) }
     var showPickEnd by remember { mutableStateOf(false) }
     var pendingStart by remember { mutableStateOf<LocalDate?>(null) }
+
+    // Add/Edit dialog state
+    var showAddDialog by remember { mutableStateOf(false) }
+    var editingItem by remember { mutableStateOf<ShoppingItem?>(null) }
 
     val dateFormatter = DateTimeFormatter.ofPattern("d MMM", Locale.ITALIAN)
 
@@ -93,49 +101,71 @@ fun ShoppingListScreen(
         }
     }
 
+    // Add/Edit dialog
+    if (showAddDialog || editingItem != null) {
+        AddEditShoppingItemDialog(
+            item = editingItem,
+            onDismiss = { showAddDialog = false; editingItem = null },
+            onSave = { name, qty, unit ->
+                val existing = editingItem
+                if (existing != null) {
+                    viewModel.updateItem(existing, name, qty, unit)
+                } else {
+                    viewModel.addItem(name, qty, unit)
+                }
+                showAddDialog = false
+                editingItem = null
+            }
+        )
+    }
+
     Scaffold(
         topBar = {
-            TopAppBar(
+            GradientTopAppBar(
                 title = {
                     Column {
-                        Text("Lista della spesa", style = MaterialTheme.typography.titleLarge,
-                            color = MaterialTheme.colorScheme.onPrimary)
+                        Text("Lista della spesa", style = MaterialTheme.typography.titleLarge)
                         if (totalItems > 0) {
                             Text(
                                 "$checkedItems/$totalItems completati",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.75f)
+                                color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.75f)
                             )
                         }
                     }
                 },
                 navigationIcon = {
                     IconButton(onClick = onOpenDrawer) {
-                        Icon(Icons.Filled.Menu, contentDescription = "Menu",
-                            tint = MaterialTheme.colorScheme.onPrimary)
+                        Icon(Icons.Filled.Menu, contentDescription = "Menu")
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimary,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimary,
-                    actionIconContentColor = MaterialTheme.colorScheme.onPrimary
-                )
+                }
             )
         },
         floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = { viewModel.regenerateFromMealPlan() },
-                icon = {
-                    if (isGenerating) {
-                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                    } else {
-                        Icon(Icons.Filled.Refresh, contentDescription = null)
-                    }
-                },
-                text = { Text("Rigenera dalla dieta") },
-                expanded = !isGenerating
-            )
+            Column(
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalAlignment = Alignment.End
+            ) {
+                FloatingActionButton(
+                    onClick = { showAddDialog = true },
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                ) {
+                    Icon(Icons.Filled.Add, contentDescription = "Aggiungi articolo")
+                }
+                ExtendedFloatingActionButton(
+                    onClick = { viewModel.regenerateFromMealPlan() },
+                    icon = {
+                        if (isGenerating) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                        } else {
+                            Icon(Icons.Filled.Refresh, contentDescription = null)
+                        }
+                    },
+                    text = { Text("Rigenera dalla dieta") },
+                    expanded = !isGenerating
+                )
+            }
         }
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
@@ -198,7 +228,7 @@ fun ShoppingListScreen(
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = 88.dp)
+                    contentPadding = PaddingValues(bottom = 120.dp)
                 ) {
                     groupedItems.forEach { (category, items) ->
                         stickyHeader(key = category.name) {
@@ -243,6 +273,7 @@ fun ShoppingListScreen(
                             ShoppingItemRow(
                                 item = item,
                                 onToggle = { viewModel.toggleItemChecked(item) },
+                                onEdit = { editingItem = item },
                                 onDelete = { viewModel.deleteItem(item.id) }
                             )
                         }
@@ -254,14 +285,70 @@ fun ShoppingListScreen(
 }
 
 @Composable
+private fun AddEditShoppingItemDialog(
+    item: ShoppingItem?,
+    onDismiss: () -> Unit,
+    onSave: (name: String, quantity: String, unit: String) -> Unit
+) {
+    var name by remember(item) { mutableStateOf(item?.name ?: "") }
+    var quantity by remember(item) { mutableStateOf(item?.quantity ?: "") }
+    var unit by remember(item) { mutableStateOf(item?.unit ?: "") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (item != null) "Modifica articolo" else "Aggiungi articolo") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Nome") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = quantity,
+                        onValueChange = { quantity = it },
+                        label = { Text("Quantità") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = unit,
+                        onValueChange = { unit = it },
+                        label = { Text("Unità") },
+                        singleLine = true,
+                        placeholder = { Text("g, kg, pz…") },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onSave(name, quantity, unit) },
+                enabled = name.isNotBlank()
+            ) { Text("Salva") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Annulla") }
+        }
+    )
+}
+
+@Composable
 private fun ShoppingItemRow(
     item: ShoppingItem,
     onToggle: () -> Unit,
+    onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .clickable { onEdit() }
             .padding(horizontal = 16.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {

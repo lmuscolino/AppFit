@@ -15,6 +15,7 @@ class NotificationChannels @Inject constructor(
         const val CHANNEL_ACTIVITY_REMINDERS = "activity_reminders"
         const val CHANNEL_DAILY_SUMMARY = "daily_summary"
         const val CHANNEL_PROFILE_UPDATE = "profile_update"
+        const val CHANNEL_EMAIL_INBOX = "email_inbox"
     }
 
     fun createChannels() {
@@ -45,6 +46,14 @@ class NotificationChannels @Inject constructor(
             description = "Promemoria mensile per aggiornare le caratteristiche fisiche"
         }
 
-        manager.createNotificationChannels(listOf(activityChannel, summaryChannel, profileUpdateChannel))
+        val emailInboxChannel = NotificationChannel(
+            CHANNEL_EMAIL_INBOX,
+            "Analisi email",
+            NotificationManager.IMPORTANCE_DEFAULT
+        ).apply {
+            description = "Elementi trovati dall'analisi automatica delle email"
+        }
+
+        manager.createNotificationChannels(listOf(activityChannel, summaryChannel, profileUpdateChannel, emailInboxChannel))
     }
 }

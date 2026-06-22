@@ -12,6 +12,7 @@ import com.appfit.data.repository.ChatRepository
 import com.appfit.domain.usecase.GetDailyPlanUseCase
 import com.appfit.domain.usecase.SendChatMessageUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -42,26 +43,49 @@ class ChatViewModel @Inject constructor(
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
+    private var pendingRegenerationMessage: String? = null
+    private var activeJob: Job? = null
+
     fun sendMessage(text: String) {
         if (text.isBlank() || _isThinking.value) return
-        viewModelScope.launch {
+        activeJob = viewModelScope.launch {
             _isThinking.value = true
             _errorMessage.value = null
             try {
                 val todayPlan = getDailyPlanUseCase(LocalDate.now()).first()
                 val modified = sendChatMessageUseCase(text, todayPlan)
-                if (modified) {
-                    _planModified.value = true
+                if (modified) _planModified.value = true
+
+                // Auto-send regeneration request if queued after plan approval
+                val regenMsg = pendingRegenerationMessage
+                pendingRegenerationMessage = null
+                if (!regenMsg.isNullOrBlank()) {
+                    // Auto-approve tools for regen: no second dialog shown to the user
+                    toolApprovalManager.setAutoApproveNext()
+                    val freshPlan = getDailyPlanUseCase(LocalDate.now()).first()
+                    sendChatMessageUseCase(regenMsg, freshPlan)
                 }
             } catch (e: Exception) {
-                _errorMessage.value = e.message ?: "Errore durante la comunicazione con l'AI"
+                pendingRegenerationMessage = null
+                if (e !is kotlinx.coroutines.CancellationException) {
+                    _errorMessage.value = e.message ?: "Errore durante la comunicazione con l'AI"
+                }
             } finally {
                 _isThinking.value = false
+                activeJob = null
             }
         }
     }
 
-    fun approveItems(items: List<ApprovalItem>) {
+    fun cancelMessage() {
+        activeJob?.cancel()
+        activeJob = null
+        pendingRegenerationMessage = null
+        _isThinking.value = false
+    }
+
+    fun approveItems(items: List<ApprovalItem>, regenerationMessage: String? = null) {
+        pendingRegenerationMessage = regenerationMessage?.takeIf { it.isNotBlank() }
         toolApprovalManager.submit(ApprovalResult.Approved(items))
     }
 

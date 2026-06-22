@@ -14,6 +14,12 @@ interface ShoppingItemDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertItems(items: List<ShoppingItem>)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertItem(item: ShoppingItem)
+
+    @Update
+    suspend fun updateItem(item: ShoppingItem)
+
     @Query("UPDATE shopping_items SET isChecked = :checked WHERE id = :id")
     suspend fun setChecked(id: Long, checked: Boolean)
 

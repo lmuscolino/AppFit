@@ -10,6 +10,7 @@ import com.appfit.ai.ToolApprovalManager
 import com.appfit.ai.UserProfileProvider
 import com.appfit.data.repository.ActivityRepository
 import com.appfit.data.repository.DietRepository
+import com.appfit.data.repository.FavoriteRecipeRepository
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -28,14 +29,16 @@ object AiModule {
         toolApprovalManager: ToolApprovalManager,
         activityRepository: ActivityRepository,
         dietRepository: DietRepository,
-        userProfileProvider: UserProfileProvider
+        userProfileProvider: UserProfileProvider,
+        favoriteRecipeRepository: FavoriteRecipeRepository
     ): AnthropicService = AnthropicService(
         apiKeyProvider,
         debugLogger,
         toolApprovalManager,
         activityRepository,
         dietRepository,
-        userProfileProvider
+        userProfileProvider,
+        favoriteRecipeRepository
     )
 
     @Provides
@@ -46,14 +49,16 @@ object AiModule {
         toolApprovalManager: ToolApprovalManager,
         activityRepository: ActivityRepository,
         dietRepository: DietRepository,
-        userProfileProvider: UserProfileProvider
+        userProfileProvider: UserProfileProvider,
+        favoriteRecipeRepository: FavoriteRecipeRepository
     ): GeminiService = GeminiService(
         apiKeyProvider,
         debugLogger,
         toolApprovalManager,
         activityRepository,
         dietRepository,
-        userProfileProvider
+        userProfileProvider,
+        favoriteRecipeRepository
     )
 
     @Provides

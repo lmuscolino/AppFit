@@ -34,8 +34,10 @@ import com.appfit.data.model.Activity
 import com.appfit.data.model.ActivityType
 import com.appfit.data.model.Meal
 import com.appfit.data.model.MealType
+import androidx.compose.foundation.layout.WindowInsets
 import com.appfit.ui.common.UiState
 import com.appfit.ui.theme.*
+import com.appfit.ui.theme.GradientTopAppBar
 import com.kizitonwose.calendar.compose.HorizontalCalendar
 import com.kizitonwose.calendar.compose.rememberCalendarState
 import com.kizitonwose.calendar.core.CalendarDay
@@ -106,8 +108,9 @@ fun CalendarScreen(
                 .fillMaxSize()
                 .padding(scaffoldPadding)
         ) {
-            // Top bar — hamburger + month navigation inline in title
-            TopAppBar(
+            // Top bar nel body del Scaffold: windowInsets = 0 per evitare doppio status-bar padding
+            GradientTopAppBar(
+                windowInsets = WindowInsets(0),
                 title = {
                     Row(
                         verticalAlignment = Alignment.CenterVertically
@@ -121,14 +124,12 @@ fun CalendarScreen(
                         }) {
                             Icon(
                                 Icons.Filled.ChevronLeft,
-                                contentDescription = "Mese precedente",
-                                tint = MaterialTheme.colorScheme.onPrimary
+                                contentDescription = "Mese precedente"
                             )
                         }
                         Text(
                             text = currentMonth.format(DateTimeFormatter.ofPattern("MMMM yyyy", Locale.ITALIAN)),
                             style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onPrimary,
                             modifier = Modifier.weight(1f),
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center
                         )
@@ -141,36 +142,21 @@ fun CalendarScreen(
                         }) {
                             Icon(
                                 Icons.Filled.ChevronRight,
-                                contentDescription = "Mese successivo",
-                                tint = MaterialTheme.colorScheme.onPrimary
+                                contentDescription = "Mese successivo"
                             )
                         }
                     }
                 },
                 navigationIcon = {
                     IconButton(onClick = onOpenDrawer) {
-                        Icon(
-                            Icons.Filled.Menu,
-                            contentDescription = "Menu",
-                            tint = MaterialTheme.colorScheme.onPrimary
-                        )
+                        Icon(Icons.Filled.Menu, contentDescription = "Menu")
                     }
                 },
                 actions = {
                     IconButton(onClick = onNavigateToProfile) {
-                        Icon(
-                            Icons.Filled.Person,
-                            contentDescription = "Profilo",
-                            tint = MaterialTheme.colorScheme.onPrimary
-                        )
+                        Icon(Icons.Filled.Person, contentDescription = "Profilo")
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimary,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimary,
-                    actionIconContentColor = MaterialTheme.colorScheme.onPrimary
-                )
+                }
             )
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -306,6 +292,16 @@ fun CalendarScreen(
                             }
                         }
 
+                        if (plan.reminders.isNotEmpty()) {
+                            item {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                SectionHeader(title = "Scadenze", icon = Icons.Filled.Notifications)
+                            }
+                            items(plan.reminders, key = { "r_${it.id}" }) { reminder ->
+                                ReminderCalendarCard(reminder = reminder)
+                            }
+                        }
+
                         item { Spacer(modifier = Modifier.height(80.dp)) }
                     }
                 }
@@ -368,6 +364,47 @@ fun CalendarScreen(
                 showAddMeal = false
             }
         )
+    }
+}
+
+@Composable
+private fun ReminderCalendarCard(reminder: com.appfit.data.model.Reminder) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f)
+        )
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(reminder.category.emoji(), style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    reminder.title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                if (reminder.description.isNotBlank()) {
+                    Text(
+                        reminder.description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2
+                    )
+                }
+            }
+            reminder.amount?.let { amt ->
+                Text(
+                    "€${"%.0f".format(amt)}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
     }
 }
 

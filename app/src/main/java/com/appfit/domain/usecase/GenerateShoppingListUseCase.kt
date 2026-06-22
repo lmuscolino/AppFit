@@ -16,47 +16,92 @@ class GenerateShoppingListUseCase @Inject constructor(
         val meals = dietRepository.getMealsForRange(start, end).first()
 
         // Aggregate all ingredients from all meals
-        val aggregated = mutableMapOf<String, MutableSet<String>>() // normalized name -> set of raw entries
+        val aggregated = mutableMapOf<String, MutableList<String>>() // normalized name -> list of raw entries (List preserves duplicates for quantity summing)
 
         meals.forEach { meal ->
             meal.ingredients.forEach { rawIngredient ->
                 if (rawIngredient.isNotBlank()) {
                     val normalized = normalizeIngredient(rawIngredient)
-                    aggregated.getOrPut(normalized) { mutableSetOf() }.add(rawIngredient)
+                    aggregated.getOrPut(normalized) { mutableListOf() }.add(rawIngredient)
+                }
+            }
+        }
+
+        // Merge keys where one is a full-word prefix of another (e.g. "basilico" + "basilico fresco" → "basilico")
+        val sortedKeys = aggregated.keys.sortedBy { it.length }.toList()
+        for (shorter in sortedKeys) {
+            if (!aggregated.containsKey(shorter)) continue
+            for (longer in sortedKeys) {
+                if (longer == shorter || !aggregated.containsKey(longer)) continue
+                if (longer.startsWith("$shorter ")) {
+                    aggregated.getOrPut(shorter) { mutableListOf() }.addAll(aggregated.remove(longer)!!)
                 }
             }
         }
 
         val shoppingItems = aggregated.entries.map { (normalized, rawEntries) ->
+            val (summedQty, unit) = sumQuantities(rawEntries)
             ShoppingItem(
                 name = normalized.replaceFirstChar { it.uppercase() },
-                quantity = extractQuantity(rawEntries.first()),
-                unit = extractUnit(rawEntries.first()),
+                quantity = summedQty,
+                unit = unit,
                 category = classifyIngredient(normalized),
-                weekStartDate = start  // usa start come chiave di storage
+                weekStartDate = start
             )
         }.sortedWith(compareBy({ it.category.order() }, { it.name }))
 
         shoppingRepository.replaceShoppingListForWeek(start, shoppingItems)
     }
 
+    private fun sumQuantities(rawEntries: Collection<String>): Pair<String, String> {
+        val parsed = rawEntries.mapNotNull { raw ->
+            val qtyStr = extractQuantity(raw)
+            val qty = qtyStr.replace(',', '.').toFloatOrNull()
+            val unit = extractUnit(raw)
+            if (qty != null) Pair(qty, unit) else null
+        }
+        if (parsed.isEmpty()) return Pair("", "")
+
+        val units = parsed.map { it.second }.toSet()
+        return if (units.size == 1) {
+            // Same unit: sum numerically
+            val total = parsed.sumOf { it.first.toDouble() }.toFloat()
+            val totalStr = if (total == total.toLong().toFloat()) total.toLong().toString() else "%.1f".format(total)
+            Pair(totalStr, units.first())
+        } else {
+            // Mixed or no units: concatenate raw strings
+            Pair(rawEntries.distinct().joinToString(" + "), "")
+        }
+    }
+
     private fun normalizeIngredient(raw: String): String {
-        // Remove quantities and units, lowercase
-        val withoutQuantity = raw
-            .replace(Regex("^\\d+[.,]?\\d*\\s*(g|gr|kg|ml|l|cl|oz|lb|tsp|tbsp|cup|pz|pcs|fette|fetta)?\\s*"), "")
-            .trim()
+        val unitPattern = "g|gr|kg|ml|l|cl|oz|lb|tsp|tbsp|cup|pz|pcs|fette|fetta"
+        val withoutQty = raw
+            // Rimuove ", 150g" o " 150g" o " (150g)" ovunque nel testo
+            .replace(Regex("[,(\\s]+\\d+[.,]?\\d*\\s*($unitPattern)\\b[)]*", RegexOption.IGNORE_CASE), "")
+            // Rimuove quantità all'inizio "150g nome" o "150 nome"
+            .replace(Regex("^\\d+[.,]?\\d*\\s*($unitPattern)?\\s*", RegexOption.IGNORE_CASE), "")
+            // Rimuove parentesi vuote residue e di (quantità)
+            .replace(Regex("\\(\\s*\\)"), "")
+            .replace(Regex("\\(\\d+[.,]?\\d*\\s*($unitPattern)?\\s*\\)", RegexOption.IGNORE_CASE), "")
+            .trim().trimEnd(',', ';', ')').trim()
             .lowercase()
-        return if (withoutQuantity.length >= 3) withoutQuantity else raw.lowercase().trim()
+        return if (withoutQty.length >= 3) withoutQty else raw.lowercase().trim()
     }
 
     private fun extractQuantity(raw: String): String {
-        val match = Regex("^(\\d+[.,]?\\d*)").find(raw.trim())
-        return match?.value ?: ""
+        val unitPattern = "g|gr|kg|ml|l|cl|oz|lb|tsp|tbsp|cup|pz|pcs|fette|fetta"
+        // Cerca "150g" o "150 g" ovunque nella stringa (con unità)
+        val withUnit = Regex("(\\d+[.,]?\\d*)\\s*($unitPattern)\\b", RegexOption.IGNORE_CASE).find(raw)
+        if (withUnit != null) return withUnit.groupValues[1]
+        // Fallback: numero senza unità all'inizio
+        return Regex("^(\\d+[.,]?\\d*)").find(raw.trim())?.groupValues?.get(1) ?: ""
     }
 
     private fun extractUnit(raw: String): String {
-        val match = Regex("^\\d+[.,]?\\d*\\s*(g|gr|kg|ml|l|cl|oz|lb|tsp|tbsp|cup|pz|pcs|fette|fetta)\\b").find(raw.trim())
-        return match?.groupValues?.get(1) ?: ""
+        val unitPattern = "g|gr|kg|ml|l|cl|oz|lb|tsp|tbsp|cup|pz|pcs|fette|fetta"
+        val match = Regex("\\d+[.,]?\\d*\\s*($unitPattern)\\b", RegexOption.IGNORE_CASE).find(raw)
+        return match?.groupValues?.get(1)?.lowercase() ?: ""
     }
 
     private fun classifyIngredient(normalized: String): ShoppingCategory {

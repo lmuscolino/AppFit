@@ -5,6 +5,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.ui.graphics.vector.ImageVector
 
 sealed class Screen(val route: String) {
+    object Dashboard : Screen("dashboard")
     object Calendar : Screen("calendar")
     object Diet : Screen("diet")
     object Shopping : Screen("shopping")
@@ -19,6 +20,10 @@ sealed class Screen(val route: String) {
     object DbViewer : Screen("dbviewer")
     object Profile : Screen("profile")
     object Workouts : Screen("workouts")
+    object Favorites : Screen("favorites")
+    object Reminders : Screen("reminders")
+    object Family : Screen("family")
+    object PendingInbox : Screen("pending_inbox")
 }
 
 data class BottomNavItem(
@@ -28,11 +33,11 @@ data class BottomNavItem(
 )
 
 val bottomNavItems = listOf(
+    BottomNavItem(Screen.Dashboard, "Home", Icons.Filled.Home),
     BottomNavItem(Screen.Calendar, "Calendario", Icons.Filled.CalendarMonth),
-    BottomNavItem(Screen.Workouts, "Allenamenti", Icons.Filled.FitnessCenter),
+    BottomNavItem(Screen.Workouts, "Workout", Icons.Filled.FitnessCenter),
     BottomNavItem(Screen.Diet, "Dieta", Icons.Filled.Restaurant),
-    BottomNavItem(Screen.Shopping, "Spesa", Icons.Filled.ShoppingCart),
-    BottomNavItem(Screen.Chat, "AI Chat", Icons.Filled.SmartToy)
+    BottomNavItem(Screen.Shopping, "Spesa", Icons.Filled.ShoppingCart)
 )
 
 data class DrawerNavItem(
@@ -43,10 +48,15 @@ data class DrawerNavItem(
 )
 
 val drawerNavItems = listOf(
+    DrawerNavItem(Screen.Dashboard, "Home", Icons.Filled.Home),
     DrawerNavItem(Screen.Calendar, "Calendario", Icons.Filled.CalendarMonth),
     DrawerNavItem(Screen.Workouts, "Allenamenti", Icons.Filled.FitnessCenter),
     DrawerNavItem(Screen.Diet, "Dieta", Icons.Filled.Restaurant),
+    DrawerNavItem(Screen.Favorites, "Ricette preferite", Icons.Filled.Favorite),
     DrawerNavItem(Screen.Shopping, "Lista della spesa", Icons.Filled.ShoppingCart),
+    DrawerNavItem(Screen.Reminders, "Promemoria", Icons.Filled.NotificationsActive),
+    DrawerNavItem(Screen.PendingInbox, "Posta AI", Icons.Filled.MarkEmailRead),
+    DrawerNavItem(Screen.Family, "Famiglia", Icons.Filled.Groups),
     DrawerNavItem(Screen.Chat, "AI Assistente", Icons.Filled.SmartToy),
     DrawerNavItem(Screen.Profile, "Profilo", Icons.Filled.Person, isHighlighted = true)
 )

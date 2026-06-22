@@ -82,4 +82,53 @@ class ShoppingViewModel @Inject constructor(
             shoppingRepository.deleteItem(id)
         }
     }
+
+    fun addItem(name: String, quantity: String, unit: String) {
+        if (name.isBlank()) return
+        viewModelScope.launch {
+            val item = ShoppingItem(
+                name = name.trim().replaceFirstChar { it.uppercase() },
+                quantity = quantity.trim(),
+                unit = unit.trim(),
+                category = classifyName(name),
+                weekStartDate = _rangeStart.value
+            )
+            shoppingRepository.insertItem(item)
+        }
+    }
+
+    fun updateItem(item: ShoppingItem, newName: String, newQty: String, newUnit: String) {
+        if (newName.isBlank()) return
+        viewModelScope.launch {
+            shoppingRepository.updateItem(
+                item.copy(
+                    name = newName.trim().replaceFirstChar { it.uppercase() },
+                    quantity = newQty.trim(),
+                    unit = newUnit.trim()
+                )
+            )
+        }
+    }
+
+    private fun classifyName(name: String): ShoppingCategory {
+        val n = name.lowercase()
+        return when {
+            n.containsAny("insalata","lattuga","spinaci","rucola","pomodoro","pomodori","carota","cipolla",
+                "aglio","peperone","zucchina","melanzana","broccoli","cavolfiore","patata","funghi","porro",
+                "sedano","finocchio","mela","pera","banana","arancia","limone","fragola","uva","pesca",
+                "kiwi","avocado","frutta","verdura") -> ShoppingCategory.PRODUCE
+            n.containsAny("pollo","tacchino","manzo","maiale","salmone","tonno","uova","prosciutto","carne",
+                "pesce","gamberi","polpo","merluzzo","fagioli","ceci","lenticchie","tofu","tempeh","whey") -> ShoppingCategory.PROTEIN
+            n.containsAny("latte","yogurt","formaggio","mozzarella","parmigiano","ricotta","burro","panna",
+                "kefir","grana") -> ShoppingCategory.DAIRY
+            n.containsAny("pasta","riso","pane","farro","orzo","quinoa","avena","farina","cereali","cracker",
+                "grissini","polenta","couscous","bulgur") -> ShoppingCategory.GRAINS
+            n.containsAny("olio","sale","pepe","spezie","erbe","aceto","salsa","ketchup","maionese","senape",
+                "dado","brodo","conserva","passata","pelati","miele","marmellata","cioccolato","zucchero") -> ShoppingCategory.PANTRY
+            else -> ShoppingCategory.OTHER
+        }
+    }
+
+    private fun String.containsAny(vararg keywords: String): Boolean =
+        keywords.any { this.contains(it) }
 }

@@ -17,6 +17,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.appfit.data.model.Meal
 import com.appfit.data.model.MealType
 import com.appfit.ui.common.UiState
+import com.appfit.ui.theme.GradientTopAppBar
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -25,10 +26,11 @@ fun MealDetailScreen(
     viewModel: MealDetailViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val savedAsFavorite by viewModel.savedAsFavorite.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            GradientTopAppBar(
                 title = {
                     val title = (uiState as? UiState.Success)?.data?.name ?: "Dettaglio pasto"
                     Text(title, maxLines = 1)
@@ -36,6 +38,17 @@ fun MealDetailScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.Filled.ArrowBack, contentDescription = "Indietro")
+                    }
+                },
+                actions = {
+                    if (uiState is UiState.Success) {
+                        IconButton(onClick = { viewModel.saveAsFavorite() }) {
+                            Icon(
+                                if (savedAsFavorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                                contentDescription = "Salva ai preferiti",
+                                tint = if (savedAsFavorite) androidx.compose.ui.graphics.Color(0xFFFF6B6B) else androidx.compose.ui.graphics.Color.White
+                            )
+                        }
                     }
                 }
             )

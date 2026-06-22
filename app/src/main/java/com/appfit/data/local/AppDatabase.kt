@@ -13,9 +13,12 @@ import com.appfit.data.model.*
         Meal::class,
         DietPlan::class,
         ShoppingItem::class,
-        ChatMessage::class
+        ChatMessage::class,
+        FavoriteRecipe::class,
+        Reminder::class,
+        PendingEmailItem::class
     ],
-    version = 1,
+    version = 4,
     exportSchema = true
 )
 @TypeConverters(DateTimeConverters::class)
@@ -25,4 +28,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun dietPlanDao(): DietPlanDao
     abstract fun shoppingItemDao(): ShoppingItemDao
     abstract fun chatMessageDao(): ChatMessageDao
+    abstract fun favoriteRecipeDao(): FavoriteRecipeDao
+    abstract fun reminderDao(): ReminderDao
+    abstract fun pendingEmailItemDao(): PendingEmailItemDao
 }

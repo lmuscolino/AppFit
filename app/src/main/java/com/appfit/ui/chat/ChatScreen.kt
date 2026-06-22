@@ -19,18 +19,27 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.appfit.ai.ApprovalItem
 import com.appfit.ai.ApprovalRequest
 import com.appfit.ai.DuplicateAction
 import com.appfit.data.model.ChatMessage
+import com.appfit.ui.theme.GradientTopAppBar
 import com.appfit.data.model.ChatRole
+import com.appfit.data.model.MealType
+import com.google.gson.Gson
+import com.google.gson.JsonObject
+import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -77,51 +86,50 @@ fun ChatScreen(
     }
 
     pendingApproval?.let { request ->
-        ApprovalDialog(
-            request = request,
-            onApprove = { viewModel.approveItems(it) },
-            onDismiss = { viewModel.rejectApproval() }
-        )
+        val mealCount = request.items.count { it.toolName == "update_meal" }
+        if (mealCount >= 3) {
+            DietPlanApprovalDialog(
+                request = request,
+                onApprove = { items, regenMsg -> viewModel.approveItems(items, regenMsg) },
+                onDismiss = { viewModel.rejectApproval() }
+            )
+        } else {
+            ApprovalDialog(
+                request = request,
+                onApprove = { viewModel.approveItems(it) },
+                onDismiss = { viewModel.rejectApproval() }
+            )
+        }
     }
 
     Scaffold(
         topBar = {
             Column {
-                TopAppBar(
+                GradientTopAppBar(
                     title = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
                                 Icons.Filled.SmartToy,
                                 contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onPrimary,
                                 modifier = Modifier.size(24.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Assistente AI", color = MaterialTheme.colorScheme.onPrimary)
+                            Text("Assistente AI")
                         }
                     },
                     navigationIcon = {
                         IconButton(onClick = onOpenDrawer) {
-                            Icon(Icons.Filled.Menu, contentDescription = "Menu",
-                                tint = MaterialTheme.colorScheme.onPrimary)
+                            Icon(Icons.Filled.Menu, contentDescription = "Menu")
                         }
                     },
                     actions = {
                         IconButton(onClick = { onNavigateToDebug() }) {
-                            Icon(Icons.Filled.BugReport, contentDescription = "DB Viewer",
-                                tint = MaterialTheme.colorScheme.onPrimary)
+                            Icon(Icons.Filled.BugReport, contentDescription = "DB Viewer")
                         }
                         IconButton(onClick = { showClearDialog = true }) {
-                            Icon(Icons.Filled.DeleteSweep, contentDescription = "Cancella chat",
-                                tint = MaterialTheme.colorScheme.onPrimary)
+                            Icon(Icons.Filled.DeleteSweep, contentDescription = "Cancella chat")
                         }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        navigationIconContentColor = MaterialTheme.colorScheme.onPrimary,
-                        titleContentColor = MaterialTheme.colorScheme.onPrimary,
-                        actionIconContentColor = MaterialTheme.colorScheme.onPrimary
-                    )
+                    }
                 )
                 // Banner piano aggiornato
                 AnimatedVisibility(
@@ -267,26 +275,40 @@ fun ChatScreen(
                     enabled = !isThinking
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                FloatingActionButton(
-                    onClick = {
-                        val text = inputText.text.trim()
-                        if (text.isNotBlank()) {
-                            viewModel.sendMessage(text)
-                            inputText = TextFieldValue("")
-                        }
-                    },
-                    modifier = Modifier.size(48.dp),
-                    containerColor = if (inputText.text.isNotBlank() && !isThinking)
-                        MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.surfaceVariant
-                ) {
-                    Icon(
-                        Icons.Filled.Send,
-                        contentDescription = "Invia",
-                        tint = if (inputText.text.isNotBlank() && !isThinking)
-                            MaterialTheme.colorScheme.onPrimary
-                        else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                if (isThinking) {
+                    FloatingActionButton(
+                        onClick = { viewModel.cancelMessage() },
+                        modifier = Modifier.size(48.dp),
+                        containerColor = MaterialTheme.colorScheme.errorContainer
+                    ) {
+                        Icon(
+                            Icons.Filled.Stop,
+                            contentDescription = "Interrompi AI",
+                            tint = MaterialTheme.colorScheme.error
+                        )
+                    }
+                } else {
+                    FloatingActionButton(
+                        onClick = {
+                            val text = inputText.text.trim()
+                            if (text.isNotBlank()) {
+                                viewModel.sendMessage(text)
+                                inputText = TextFieldValue("")
+                            }
+                        },
+                        modifier = Modifier.size(48.dp),
+                        containerColor = if (inputText.text.isNotBlank())
+                            MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.surfaceVariant
+                    ) {
+                        Icon(
+                            Icons.Filled.Send,
+                            contentDescription = "Invia",
+                            tint = if (inputText.text.isNotBlank())
+                                MaterialTheme.colorScheme.onPrimary
+                            else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
         }
@@ -504,6 +526,293 @@ private fun DebugPanel(entries: List<String>, onNavigateToDebug: () -> Unit) {
         }
     }
 }
+
+// ── Data helper ──────────────────────────────────────────────────────────────
+
+private data class MealApprovalState(
+    val item: ApprovalItem,
+    val date: LocalDate,
+    val name: String,
+    val mealType: MealType,
+    val calories: Int,
+    val ingredients: List<String>,
+    var isSelected: Boolean = true,
+    var regenNote: String = ""
+)
+
+private fun parseMealApprovalStates(items: List<ApprovalItem>): List<MealApprovalState> {
+    val gson = Gson()
+    val dateFormatter = DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.ITALIAN)
+    return items.mapNotNull { item ->
+        if (item.toolName != "update_meal") return@mapNotNull null
+        try {
+            val json = gson.fromJson(item.inputJson, JsonObject::class.java)
+            val dateStr = json.get("scheduled_date")?.asString ?: return@mapNotNull null
+            val date = LocalDate.parse(dateStr)
+            val name = json.get("name")?.asString ?: item.displayTitle
+            val typeStr = json.get("type")?.asString ?: "LUNCH"
+            val mealType = try { MealType.valueOf(typeStr) } catch (e: Exception) { MealType.LUNCH }
+            val calories = json.get("calories_kcal")?.asInt ?: 0
+            val ingredients = json.getAsJsonArray("ingredients")?.map { it.asString } ?: emptyList()
+            MealApprovalState(item, date, name, mealType, calories, ingredients)
+        } catch (e: Exception) { null }
+    }
+}
+
+// ── Diet Plan Approval Dialog ─────────────────────────────────────────────────
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DietPlanApprovalDialog(
+    request: ApprovalRequest,
+    onApprove: (List<ApprovalItem>, String?) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val initialStates = remember(request) { parseMealApprovalStates(request.items) }
+    var mealStates by remember(request) { mutableStateOf(initialStates) }
+    // Non-meal items (activities, deletes) handled separately
+    val nonMealItems = remember(request) { request.items.filter { it.toolName != "update_meal" } }
+    var nonMealSelected by remember(request) { mutableStateOf(nonMealItems.map { it.isSelected }) }
+
+    val dateFormatter = DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.ITALIAN)
+    val grouped = remember(mealStates) { mealStates.groupBy { it.date }.toSortedMap() }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnClickOutside = false)
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth(0.95f)
+                .fillMaxHeight(0.92f),
+            shape = MaterialTheme.shapes.extraLarge,
+            tonalElevation = 6.dp
+        ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                // Header
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Filled.SmartToy, contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("Piano dieta proposto", style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold)
+                        Text("${mealStates.size} pasti · seleziona cosa approvare",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                HorizontalDivider()
+
+                // Scrollable content
+                LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    grouped.forEach { (date, dayMeals) ->
+                        item(key = date.toString() + "_header") {
+                            Text(
+                                date.format(dateFormatter).replaceFirstChar { it.uppercase() },
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+                            )
+                        }
+                        items(dayMeals.size, key = { dayMeals[it].item.toolUseId }) { idx ->
+                            val state = dayMeals[idx]
+                            MealApprovalCard(
+                                state = state,
+                                onSelectedChange = { selected ->
+                                    mealStates = mealStates.toMutableList().also { list ->
+                                        val i = list.indexOfFirst { it.item.toolUseId == state.item.toolUseId }
+                                        if (i >= 0) list[i] = list[i].copy(isSelected = selected)
+                                    }
+                                },
+                                onRegenNoteChange = { note ->
+                                    mealStates = mealStates.toMutableList().also { list ->
+                                        val i = list.indexOfFirst { it.item.toolUseId == state.item.toolUseId }
+                                        if (i >= 0) list[i] = list[i].copy(regenNote = note, isSelected = note.isBlank())
+                                    }
+                                }
+                            )
+                        }
+                    }
+
+                    // Non-meal items (activities, deletes)
+                    if (nonMealItems.isNotEmpty()) {
+                        item(key = "other_header") {
+                            Text("Altre modifiche", style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp))
+                        }
+                        items(nonMealItems.size, key = { nonMealItems[it].toolUseId }) { idx ->
+                            val item = nonMealItems[idx]
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Checkbox(
+                                    checked = nonMealSelected.getOrElse(idx) { true },
+                                    onCheckedChange = { checked ->
+                                        nonMealSelected = nonMealSelected.toMutableList().also { it[idx] = checked }
+                                    }
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Column {
+                                    Text(item.displayTitle, style = MaterialTheme.typography.bodyMedium,
+                                        color = if (item.isDeleteAction) MaterialTheme.colorScheme.error
+                                        else MaterialTheme.colorScheme.onSurface)
+                                    if (item.displayDetail.isNotBlank())
+                                        Text(item.displayDetail, style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                HorizontalDivider()
+
+                // Footer buttons
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    TextButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
+                        Text("Annulla")
+                    }
+                    Button(
+                        onClick = {
+                            // Build approved item list
+                            val approvedMeals = mealStates
+                                .filter { it.isSelected }
+                                .map { it.item.copy(isSelected = true) }
+                            val approvedOthers = nonMealItems.filterIndexed { i, _ ->
+                                nonMealSelected.getOrElse(i) { true }
+                            }
+                            val allApproved = approvedMeals + approvedOthers
+
+                            // Build regeneration message for meals with notes
+                            val toRegen = mealStates.filter { !it.isSelected && it.regenNote.isNotBlank() }
+                            val regenMsg = if (toRegen.isNotEmpty()) {
+                                val lines = toRegen.joinToString("\n") { s ->
+                                    "- ${s.mealType.displayName()} del ${s.date.format(dateFormatter)}: ${s.name} → ${s.regenNote}"
+                                }
+                                "Rigenera i seguenti pasti del piano, tenendo conto delle note indicate:\n$lines"
+                            } else null
+
+                            onApprove(allApproved, regenMsg)
+                        },
+                        modifier = Modifier.weight(2f)
+                    ) {
+                        val approvedCount = mealStates.count { it.isSelected }
+                        Text("Approva $approvedCount/${mealStates.size} pasti")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MealApprovalCard(
+    state: MealApprovalState,
+    onSelectedChange: (Boolean) -> Unit,
+    onRegenNoteChange: (String) -> Unit
+) {
+    var showIngredients by remember { mutableStateOf(false) }
+    var showRegenField by remember { mutableStateOf(state.regenNote.isNotBlank()) }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = if (state.isSelected)
+                MaterialTheme.colorScheme.surface
+            else
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        )
+    ) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(
+                    checked = state.isSelected,
+                    onCheckedChange = onSelectedChange,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(Modifier.width(8.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        "${state.mealType.displayName()} · ${state.name}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium
+                    )
+                    if (state.calories > 0)
+                        Text("${state.calories} kcal", style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                // Ingredients toggle
+                if (state.ingredients.isNotEmpty()) {
+                    IconButton(onClick = { showIngredients = !showIngredients },
+                        modifier = Modifier.size(32.dp)) {
+                        Icon(
+                            if (showIngredients) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                            contentDescription = "Ingredienti",
+                            modifier = Modifier.size(18.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                // Regenerate button
+                IconButton(onClick = {
+                    showRegenField = !showRegenField
+                    if (!showRegenField) onRegenNoteChange("")
+                }, modifier = Modifier.size(32.dp)) {
+                    Icon(
+                        Icons.Filled.Refresh,
+                        contentDescription = "Rigenera",
+                        modifier = Modifier.size(18.dp),
+                        tint = if (state.regenNote.isNotBlank()) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            // Ingredients list
+            if (showIngredients && state.ingredients.isNotEmpty()) {
+                Column(
+                    modifier = Modifier.padding(start = 28.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    state.ingredients.forEach { ing ->
+                        Text("• $ing", style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+
+            // Regeneration note field
+            if (showRegenField) {
+                OutlinedTextField(
+                    value = state.regenNote,
+                    onValueChange = onRegenNoteChange,
+                    modifier = Modifier.fillMaxWidth().padding(start = 28.dp),
+                    placeholder = { Text("Es. più leggero, senza lattosio…", style = MaterialTheme.typography.bodySmall) },
+                    label = { Text("Note per la rigenerazione") },
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
+    }
+}
+
+// ── Standard Approval Dialog ──────────────────────────────────────────────────
 
 @Composable
 private fun ApprovalDialog(

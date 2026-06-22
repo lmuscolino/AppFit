@@ -4,6 +4,7 @@ plugins {
     alias(libs.plugins.ksp)
     alias(libs.plugins.hilt)
     alias(libs.plugins.compose.compiler)
+    alias(libs.plugins.google.services)
 }
 
 android {
@@ -110,8 +111,21 @@ dependencies {
     // Gson
     implementation(libs.gson)
 
+    // Google Play Services Auth (Google Sign-In + Calendar sync)
+    implementation(libs.play.services.auth)
+
+    // Firebase
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.auth)
+    implementation(libs.firebase.firestore)
+
     // Core library desugaring (required by compose-calendar for java.time on API < 26)
     coreLibraryDesugaring(libs.desugar.jdk.libs)
+
+    // Test
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
+    testImplementation("com.google.code.gson:gson:2.10.1")
 }
 
 ksp {

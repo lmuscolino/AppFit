@@ -21,4 +21,8 @@ class ShoppingRepository @Inject constructor(
         dao.setChecked(id, !currentState)
 
     suspend fun deleteItem(id: Long) = dao.deleteItem(id)
+
+    suspend fun insertItem(item: ShoppingItem) = dao.insertItem(item)
+
+    suspend fun updateItem(item: ShoppingItem) = dao.updateItem(item)
 }

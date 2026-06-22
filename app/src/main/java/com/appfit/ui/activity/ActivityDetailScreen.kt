@@ -21,6 +21,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.appfit.data.model.ActivityType
 import com.appfit.ui.common.UiState
 import com.appfit.ui.theme.*
+import com.appfit.ui.theme.GradientTopAppBar
 import java.time.LocalTime
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -55,7 +56,7 @@ fun ActivityDetailScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            GradientTopAppBar(
                 title = { Text(if (isEditMode) "Modifica attività" else "Dettaglio attività") },
                 navigationIcon = {
                     IconButton(onClick = { if (isEditMode) isEditMode = false else onBack() }) {
@@ -74,7 +75,7 @@ fun ActivityDetailScreen(
                             Icon(
                                 Icons.Filled.Delete,
                                 contentDescription = "Elimina",
-                                tint = MaterialTheme.colorScheme.error
+                                tint = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.8f)
                             )
                         }
                     }

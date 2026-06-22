@@ -16,6 +16,7 @@ data class Activity(
     val scheduledDate: LocalDate,
     val scheduledTime: LocalTime? = null,
     val isCompleted: Boolean = false,
+    val isImportant: Boolean = false,
     val caloriesBurned: Int = 0,
     val aiGenerated: Boolean = false,
     val createdAt: Instant = Instant.now()

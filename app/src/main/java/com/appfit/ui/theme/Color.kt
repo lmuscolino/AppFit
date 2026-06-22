@@ -2,14 +2,14 @@ package com.appfit.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Primary — Teal/Aqua (verdeacqua, salute, fitness)
-val TealPrimary = Color(0xFF00897B)           // Teal 600
-val TealPrimaryContainer = Color(0xFFB2DFDB)  // Teal 100
+// Primary — Green (verde vivace, natura, salute)
+val TealPrimary = Color(0xFF4CAF50)           // Green 500
+val TealPrimaryContainer = Color(0xFFC8E6C9)  // Green 100
 val OnTealPrimary = Color(0xFFFFFFFF)
-val OnTealPrimaryContainer = Color(0xFF00352D)
+val OnTealPrimaryContainer = Color(0xFF1B5E20) // Green 900
 
 // Secondary — Light Blue (fresco, idratazione)
-val BlueSecondary = Color(0xFF0288D1)         // Light Blue 700
+val BlueSecondary = Color(0xFF29B6F6)         // Light Blue 400
 val BlueSecondaryContainer = Color(0xFFB3E5FC)
 val OnBlueSecondaryContainer = Color(0xFF01234A)
 

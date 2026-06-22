@@ -27,6 +27,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.appfit.data.model.Activity
 import com.appfit.data.model.ActivityType
 import com.appfit.ui.theme.*
+import com.appfit.ui.theme.GradientTopAppBar
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
@@ -50,19 +51,13 @@ fun WorkoutsScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Allenamenti", color = MaterialTheme.colorScheme.onPrimary) },
+            GradientTopAppBar(
+                title = { Text("Allenamenti") },
                 navigationIcon = {
                     IconButton(onClick = onOpenDrawer) {
-                        Icon(Icons.Filled.Menu, contentDescription = "Menu",
-                            tint = MaterialTheme.colorScheme.onPrimary)
+                        Icon(Icons.Filled.Menu, contentDescription = "Menu")
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimary,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimary
-                )
+                }
             )
         }
     ) { padding ->

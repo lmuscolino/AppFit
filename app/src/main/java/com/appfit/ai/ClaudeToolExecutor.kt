@@ -1,8 +1,10 @@
 package com.appfit.ai
 
+import com.appfit.ai.WorkoutScheduleSlot
 import com.appfit.data.model.*
 import com.appfit.data.repository.ActivityRepository
 import com.appfit.data.repository.DietRepository
+import com.appfit.data.repository.ReminderRepository
 import com.google.gson.Gson
 import com.google.gson.JsonObject
 import kotlinx.coroutines.flow.first
@@ -15,7 +17,9 @@ import javax.inject.Singleton
 class ClaudeToolExecutor @Inject constructor(
     private val activityRepository: ActivityRepository,
     private val dietRepository: DietRepository,
-    private val userProfileProvider: UserProfileProvider
+    private val userProfileProvider: UserProfileProvider,
+    private val googleCalendarService: GoogleCalendarService,
+    private val reminderRepository: ReminderRepository
 ) {
     private val gson = Gson()
 
@@ -31,15 +35,54 @@ class ClaudeToolExecutor @Inject constructor(
             val input = gson.fromJson(inputJson, JsonObject::class.java)
             when (toolName) {
                 "add_activity"           -> handleAddActivity(input)
+                "update_activity"        -> handleUpdateActivity(input)
                 "update_meal"            -> handleUpdateMeal(input)
                 "delete_plan_item"       -> handleDeleteItem(input)
                 "get_current_plan"       -> handleGetPlan(input)
                 "save_user_preferences"  -> handleSavePreferences(input)
+                "update_user_notes"      -> handleUpdateUserNotes(input)
+                "save_workout_schedule"  -> handleSaveWorkoutSchedule(input)
+                "update_profile_data"    -> handleUpdateProfileData(input)
+                "add_reminder"           -> handleAddReminder(input)
                 else -> "Strumento sconosciuto: $toolName"
             }
         } catch (e: Exception) {
             "Errore nell'esecuzione dello strumento: ${e.message}"
         }
+    }
+
+    private suspend fun handleUpdateActivity(input: JsonObject): String {
+        val activityId = input.get("activity_id")?.asLong ?: return "Errore: activity_id mancante"
+        val existing = activityRepository.getActivityById(activityId) ?: return "Errore: attività ID:$activityId non trovata"
+
+        val title = input.get("title")?.asString ?: existing.title
+        val description = input.get("description")?.asString ?: existing.description
+        val typeStr = input.get("type")?.asString
+        val type = if (typeStr != null) try { ActivityType.valueOf(typeStr) } catch (e: Exception) { existing.type } else existing.type
+        val durationMinutes = input.get("duration_minutes")?.asInt ?: existing.durationMinutes
+        val scheduledDateStr = input.get("scheduled_date")?.asString
+        val scheduledDate = if (scheduledDateStr != null) try { LocalDate.parse(scheduledDateStr) } catch (e: Exception) { existing.scheduledDate } else existing.scheduledDate
+        val scheduledTimeStr = input.get("scheduled_time")?.asString
+        val scheduledTime = when {
+            scheduledTimeStr != null -> try { LocalTime.parse(scheduledTimeStr) } catch (e: Exception) { existing.scheduledTime }
+            else -> existing.scheduledTime
+        }
+        val caloriesBurned = input.get("calories_burned")?.asInt ?: existing.caloriesBurned
+
+        val updated = existing.copy(
+            title = title,
+            description = description,
+            type = type,
+            durationMinutes = durationMinutes,
+            scheduledDate = scheduledDate,
+            scheduledTime = scheduledTime,
+            caloriesBurned = caloriesBurned
+        )
+
+        activityRepository.updateActivity(updated)
+        planModified = true
+        googleCalendarService.syncActivity(updated)
+        return "Attività ID:$activityId aggiornata: '$title' il $scheduledDate"
     }
 
     private suspend fun handleAddActivity(input: JsonObject): String {
@@ -70,6 +113,8 @@ class ClaudeToolExecutor @Inject constructor(
 
         val id = activityRepository.insertActivity(activity)
         planModified = true
+        // Sync to Google Calendar if enabled (fire-and-forget, non-blocking)
+        googleCalendarService.syncActivity(activity.copy(id = id))
         return "Attività aggiunta con successo: '$title' il $scheduledDateStr (ID: $id)"
     }
 
@@ -113,6 +158,7 @@ class ClaudeToolExecutor @Inject constructor(
 
         return when (itemType.uppercase()) {
             "ACTIVITY" -> {
+                googleCalendarService.deleteActivityEvent(itemId)
                 activityRepository.deleteActivity(itemId)
                 planModified = true
                 "Attività ID:$itemId eliminata con successo"
@@ -153,6 +199,96 @@ class ClaudeToolExecutor @Inject constructor(
         }
 
         return sb.toString()
+    }
+
+    private suspend fun handleUpdateUserNotes(input: JsonObject): String {
+        val action = input.get("action")?.asString ?: return "Errore: action mancante"
+        return when (action) {
+            "add" -> {
+                val content = input.get("content")?.asString ?: return "Errore: content mancante"
+                userProfileProvider.addNote(content)
+                "Nota aggiunta: \"$content\""
+            }
+            "update" -> {
+                val id = input.get("id")?.asString ?: return "Errore: id mancante"
+                val content = input.get("content")?.asString ?: return "Errore: content mancante"
+                userProfileProvider.updateNote(id, content)
+                "Nota aggiornata"
+            }
+            "delete" -> {
+                val id = input.get("id")?.asString ?: return "Errore: id mancante"
+                userProfileProvider.deleteNote(id)
+                "Nota eliminata"
+            }
+            "clear" -> {
+                userProfileProvider.setNotes(emptyList())
+                "Tutte le note eliminate"
+            }
+            else -> "Azione sconosciuta: $action"
+        }
+    }
+
+    private suspend fun handleSaveWorkoutSchedule(input: JsonObject): String {
+        val slotsArray = input.getAsJsonArray("slots") ?: return "Errore: slots mancanti"
+        val slots = slotsArray.mapNotNull { el ->
+            val obj = el.asJsonObject ?: return@mapNotNull null
+            val daysArray = obj.getAsJsonArray("days") ?: return@mapNotNull null
+            val days = daysArray.map { it.asString }.toSet()
+            val startTime = obj.get("start_time")?.asString ?: ""
+            val endTime = obj.get("end_time")?.asString ?: ""
+            if (days.isEmpty()) null else WorkoutScheduleSlot(days, startTime, endTime)
+        }
+        userProfileProvider.saveWorkoutSchedule(slots)
+        return if (slots.isEmpty()) {
+            "Fasce orarie di allenamento rimosse"
+        } else {
+            val summary = slots.joinToString("; ") { slot ->
+                val dayLabels = slot.days.joinToString(", ") { it.lowercase().replaceFirstChar { c -> c.uppercase() } }
+                "$dayLabels ${slot.startTime}–${slot.endTime}"
+            }
+            "Fasce orarie di allenamento salvate: $summary"
+        }
+    }
+
+    private suspend fun handleAddReminder(input: JsonObject): String {
+        val title = input.get("title")?.asString ?: return "Errore: title mancante"
+        val description = input.get("description")?.asString ?: ""
+        val categoryStr = input.get("category")?.asString ?: "OTHER"
+        val category = try { ReminderCategory.valueOf(categoryStr) } catch (e: Exception) { ReminderCategory.OTHER }
+        val dueDateStr = input.get("due_date")?.takeIf { !it.isJsonNull }?.asString
+        val dueDate = dueDateStr?.let { runCatching { java.time.LocalDate.parse(it) }.getOrNull() }
+        val amount = input.get("amount")?.takeIf { !it.isJsonNull }?.asFloat
+        val isImportant = input.get("is_important")?.asBoolean ?: false
+
+        val reminder = Reminder(
+            title = title,
+            description = description,
+            category = category,
+            dueDate = dueDate,
+            amount = amount,
+            isImportant = isImportant
+        )
+        val id = reminderRepository.insertReminder(reminder)
+        return "Promemoria aggiunto: '$title' (${category.displayName()})${if (dueDate != null) " — scadenza $dueDate" else ""} (ID: $id)"
+    }
+
+    private suspend fun handleUpdateProfileData(input: JsonObject): String {
+        val sex = input.get("sex")?.asString
+        val weightKg = input.get("weight_kg")?.asFloat
+        val heightCm = input.get("height_cm")?.asInt
+        val age = input.get("age")?.asInt
+        val fitnessLevel = input.get("fitness_level")?.asString
+
+        userProfileProvider.savePhysicalProfile(sex, weightKg, heightCm, age, fitnessLevel)
+
+        val parts = mutableListOf<String>()
+        if (sex != null) parts.add("sesso: ${if (sex == "male") "maschio" else "femmina"}")
+        if (weightKg != null) parts.add("peso: ${weightKg.toInt()} kg")
+        if (heightCm != null) parts.add("altezza: $heightCm cm")
+        if (age != null) parts.add("età: $age anni")
+        if (fitnessLevel != null) parts.add("forma fisica: $fitnessLevel")
+
+        return "Profilo aggiornato — ${parts.joinToString(", ")}"
     }
 
     private suspend fun handleSavePreferences(input: JsonObject): String {

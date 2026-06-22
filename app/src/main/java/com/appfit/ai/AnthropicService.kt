@@ -17,6 +17,7 @@ import com.appfit.data.model.ChatRole
 import com.appfit.data.model.DailyPlan
 import com.appfit.data.repository.ActivityRepository
 import com.appfit.data.repository.DietRepository
+import com.appfit.data.repository.FavoriteRecipeRepository
 import com.fasterxml.jackson.core.type.TypeReference
 import com.google.gson.Gson
 import com.google.gson.JsonObject
@@ -39,7 +40,8 @@ class AnthropicService @Inject constructor(
     private val toolApprovalManager: ToolApprovalManager,
     private val activityRepository: ActivityRepository,
     private val dietRepository: DietRepository,
-    private val userProfileProvider: UserProfileProvider
+    private val userProfileProvider: UserProfileProvider,
+    private val favoriteRecipeRepository: FavoriteRecipeRepository
 ) : AiService {
     private val gson = Gson()
     private var cachedClient: AnthropicClient? = null
@@ -67,11 +69,12 @@ class AnthropicService @Inject constructor(
 
         val client = getClient(apiKey)
         val userProfile = userProfileProvider.getProfile()
-        val systemPrompt = SystemPromptBuilder.build(currentPlan, userProfile)
+        val favorites = favoriteRecipeRepository.getAllFavoritesOnce()
+        val systemPrompt = SystemPromptBuilder.build(currentPlan, userProfile, favorites)
         toolExecutor.resetModifiedFlag()
 
         val messages = mutableListOf<MessageParam>()
-        conversationHistory.takeLast(20).forEach { msg ->
+        conversationHistory.takeLast(10).forEach { msg ->
             messages.add(
                 MessageParam.builder()
                     .role(if (msg.role == ChatRole.USER) MessageParam.Role.USER else MessageParam.Role.ASSISTANT)
@@ -90,13 +93,13 @@ class AnthropicService @Inject constructor(
 
         var currentMessages = messages.toMutableList()
         var iterations = 0
-        val maxIterations = 5
+        val maxIterations = 8
         var finalText = ""
 
         while (iterations < maxIterations) {
             val params = MessageCreateParams.builder()
                 .model(apiKeyProvider.getSelectedModel())
-                .maxTokens(4096L)
+                .maxTokens(8192L)
                 .system(systemPrompt)
                 .messages(currentMessages)
                 .tools(tools)
@@ -150,7 +153,7 @@ class AnthropicService @Inject constructor(
             )
 
             // Separate silent tools (no approval) from write tools
-            val silentTools = setOf("get_current_plan", "save_user_preferences")
+            val silentTools = setOf("get_current_plan", "save_user_preferences", "update_user_notes", "save_workout_schedule", "update_profile_data", "add_reminder")
             val readOnlyBlocks = toolUseBlocks.filter { it.asToolUse().name() in silentTools }
             val writeBlocks = toolUseBlocks.filter { it.asToolUse().name() !in silentTools }
 
@@ -272,6 +275,20 @@ class AnthropicService @Inject constructor(
                     duplicateName = existing?.let { "${it.title} (${it.type.name})" }
                 )
             }
+            "update_activity" -> {
+                val activityId = input["activity_id"]?.asLong ?: 0L
+                val existing = activityRepository.getActivityById(activityId)
+                val title = input["title"]?.asString ?: existing?.title ?: "Attività $activityId"
+                val dateStr = input["scheduled_date"]?.asString ?: existing?.scheduledDate?.toString() ?: LocalDate.now().toString()
+                val dur = input["duration_minutes"]?.asInt ?: existing?.durationMinutes ?: 0
+                ApprovalItem(
+                    toolUseId = toolUseId,
+                    toolName = toolName,
+                    inputJson = inputJson,
+                    displayTitle = "Modifica: $title ($dur min)",
+                    displayDetail = "ID $activityId · $dateStr"
+                )
+            }
             "update_meal" -> {
                 val name = input["name"]?.asString ?: "Pasto"
                 val type = input["type"]?.asString ?: ""
@@ -326,6 +343,11 @@ class AnthropicService @Inject constructor(
             schemaJson = """{"type":"object","properties":{"title":{"type":"string"},"description":{"type":"string"},"type":{"type":"string","enum":["CARDIO","STRENGTH","FLEXIBILITY","YOGA","REST","CUSTOM"]},"duration_minutes":{"type":"integer"},"scheduled_date":{"type":"string"},"scheduled_time":{"type":"string"},"calories_burned":{"type":"integer"}},"required":["title","type","duration_minutes","scheduled_date"]}"""
         ),
         buildTool(
+            name = "update_activity",
+            description = "Modifica un'attività esistente nel calendario (titolo, tipo, durata, data, orario, calorie). Usa questo strumento quando l'utente vuole modificare o aggiornare un'attività già pianificata. Aggiorna solo i campi forniti, gli altri restano invariati. Sincronizza automaticamente con Google Calendar.",
+            schemaJson = """{"type":"object","properties":{"activity_id":{"type":"integer","description":"ID dell'attività da aggiornare"},"title":{"type":"string"},"description":{"type":"string"},"type":{"type":"string","enum":["CARDIO","STRENGTH","FLEXIBILITY","YOGA","REST","CUSTOM"]},"duration_minutes":{"type":"integer"},"scheduled_date":{"type":"string","description":"Data in formato YYYY-MM-DD"},"scheduled_time":{"type":"string","description":"Orario in formato HH:mm"},"calories_burned":{"type":"integer"}},"required":["activity_id"]}"""
+        ),
+        buildTool(
             name = "update_meal",
             description = "Aggiunge o modifica un pasto nel piano dieta dell'utente",
             schemaJson = """{"type":"object","properties":{"name":{"type":"string"},"description":{"type":"string"},"type":{"type":"string","enum":["BREAKFAST","LUNCH","DINNER","SNACK"]},"scheduled_date":{"type":"string"},"ingredients":{"type":"array","items":{"type":"string"}},"calories_kcal":{"type":"integer"},"protein_g":{"type":"integer"},"carbs_g":{"type":"integer"},"fat_g":{"type":"integer"}},"required":["name","type","scheduled_date"]}"""
@@ -344,6 +366,26 @@ class AnthropicService @Inject constructor(
             name = "save_user_preferences",
             description = "Salva le preferenze dell'utente rilevate dalla conversazione: tipi di allenamento preferiti, restrizioni alimentari, obiettivo fitness. Usare automaticamente senza chiedere conferma quando l'utente esprime preferenze, anche implicitamente.",
             schemaJson = """{"type":"object","properties":{"preferred_workout_types":{"type":"array","items":{"type":"string","enum":["CARDIO","STRENGTH","FLEXIBILITY","YOGA","REST","CUSTOM"]},"description":"Tipi di allenamento preferiti dall'utente"},"dietary_restrictions":{"type":"array","items":{"type":"string"},"description":"Restrizioni o preferenze alimentari, es: vegetariano, vegano, senza glutine, senza lattosio, halal, kosher"},"fitness_goal":{"type":"string","enum":["weight_loss","muscle_gain","endurance","flexibility","general_health"],"description":"Obiettivo fitness principale dell'utente"}},"required":[]}"""
+        ),
+        buildTool(
+            name = "update_user_notes",
+            description = "Gestisce le note personali dell'utente. Usa questo strumento automaticamente quando l'utente condivide informazioni personali rilevanti (es. infortuni, preferenze specifiche, condizioni mediche, orari preferiti, ecc.) che non rientrano nelle preferenze standard. Puoi aggiungere, modificare, eliminare singole note o svuotare tutte le note.",
+            schemaJson = """{"type":"object","properties":{"action":{"type":"string","enum":["add","update","delete","clear"],"description":"Operazione da eseguire"},"id":{"type":"string","description":"ID della nota (obbligatorio per update e delete)"},"content":{"type":"string","description":"Contenuto della nota (obbligatorio per add e update)"}},"required":["action"]}"""
+        ),
+        buildTool(
+            name = "save_workout_schedule",
+            description = "Salva le fasce orarie e i giorni di allenamento dell'utente. Usa questo strumento automaticamente quando l'utente indica i giorni e/o gli orari in cui preferisce allenarsi. Sostituisce completamente la schedule precedente. Per rimuovere tutto, passa slots vuoto.",
+            schemaJson = """{"type":"object","properties":{"slots":{"type":"array","description":"Lista di fasce orarie di allenamento","items":{"type":"object","properties":{"days":{"type":"array","items":{"type":"string","enum":["MONDAY","TUESDAY","WEDNESDAY","THURSDAY","FRIDAY","SATURDAY","SUNDAY"]},"description":"Giorni della settimana"},"start_time":{"type":"string","description":"Orario di inizio in formato HH:mm, es: 07:00"},"end_time":{"type":"string","description":"Orario di fine in formato HH:mm, es: 09:00"}},"required":["days"]}}},"required":["slots"]}"""
+        ),
+        buildTool(
+            name = "add_reminder",
+            description = "Aggiunge un promemoria (bolletta, scadenza auto, documento, abbonamento, ecc.). Usa automaticamente quando l'utente menziona scadenze da ricordare.",
+            schemaJson = """{"type":"object","properties":{"title":{"type":"string"},"description":{"type":"string"},"category":{"type":"string","enum":["BILL","CAR","DOCUMENT","HEALTH","SUBSCRIPTION","OTHER"]},"due_date":{"type":"string","description":"Data scadenza YYYY-MM-DD, null se non nota"},"amount":{"type":"number","description":"Importo in euro, null se non noto"},"is_important":{"type":"boolean","description":"true se è urgente/critico"}},"required":["title","category"]}"""
+        ),
+        buildTool(
+            name = "update_profile_data",
+            description = "Salva i dati fisici e il livello di forma dell'utente. Usa questo strumento dopo aver raccolto i dati mancanti (sesso, peso, altezza, età, livello di forma fisica) necessari per generare un piano. Aggiorna solo i campi forniti, gli altri restano invariati.",
+            schemaJson = """{"type":"object","properties":{"sex":{"type":"string","enum":["male","female"],"description":"Sesso biologico dell'utente"},"weight_kg":{"type":"number","description":"Peso in kg, es: 75.5"},"height_cm":{"type":"integer","description":"Altezza in cm, es: 175"},"age":{"type":"integer","description":"Età in anni"},"fitness_level":{"type":"string","enum":["beginner","intermediate","advanced"],"description":"Livello di forma fisica: beginner=principiante, intermediate=intermedio, advanced=avanzato"}},"required":[]}"""
         )
     )
 

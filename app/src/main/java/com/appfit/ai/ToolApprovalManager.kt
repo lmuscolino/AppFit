@@ -15,7 +15,17 @@ class ToolApprovalManager @Inject constructor() {
 
     private var responseChannel: Channel<ApprovalResult>? = null
 
+    @Volatile private var autoApproveNext = false
+
+    fun setAutoApproveNext() {
+        autoApproveNext = true
+    }
+
     suspend fun requestApproval(request: ApprovalRequest): ApprovalResult {
+        if (autoApproveNext) {
+            autoApproveNext = false
+            return ApprovalResult.Approved(request.items.map { it.copy(isSelected = true) })
+        }
         val channel = Channel<ApprovalResult>(1)
         responseChannel = channel
         _pendingRequest.value = request

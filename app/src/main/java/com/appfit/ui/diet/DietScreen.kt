@@ -19,6 +19,7 @@ import com.appfit.data.model.DailyPlan
 import com.appfit.data.model.Meal
 import com.appfit.data.model.MealType
 import com.appfit.ui.common.UiState
+import com.appfit.ui.theme.GradientTopAppBar
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -30,32 +31,46 @@ fun DietScreen(
     onMealClick: (Long) -> Unit = {},
     viewModel: DietViewModel = hiltViewModel()
 ) {
-    val state by viewModel.todayPlan.collectAsStateWithLifecycle()
-    val today = LocalDate.now().format(DateTimeFormatter.ofPattern("d MMMM", Locale.ITALIAN))
+    val state by viewModel.selectedPlan.collectAsStateWithLifecycle()
+    val selectedDate by viewModel.selectedDate.collectAsStateWithLifecycle()
+    val today = LocalDate.now()
+    val isToday = selectedDate == today
+    val dateFormatter = DateTimeFormatter.ofPattern("d MMMM", Locale.ITALIAN)
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            GradientTopAppBar(
                 title = {
                     Column {
-                        Text("Dieta di oggi", style = MaterialTheme.typography.titleLarge,
-                            color = MaterialTheme.colorScheme.onPrimary)
-                        Text(today, style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.75f))
+                        Text(
+                            if (isToday) "Dieta di oggi" else "Piano dieta",
+                            style = MaterialTheme.typography.titleLarge
+                        )
+                        Text(
+                            selectedDate.format(dateFormatter),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.75f)
+                        )
                     }
                 },
                 navigationIcon = {
                     IconButton(onClick = onOpenDrawer) {
-                        Icon(Icons.Filled.Menu, contentDescription = "Menu",
-                            tint = MaterialTheme.colorScheme.onPrimary)
+                        Icon(Icons.Filled.Menu, contentDescription = "Menu")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimary,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimary,
-                    actionIconContentColor = MaterialTheme.colorScheme.onPrimary
-                )
+                actions = {
+                    IconButton(onClick = viewModel::prevDay) {
+                        Icon(Icons.Filled.ChevronLeft, contentDescription = "Giorno precedente")
+                    }
+                    if (!isToday) {
+                        IconButton(onClick = viewModel::goToToday) {
+                            Icon(Icons.Filled.Today, contentDescription = "Oggi")
+                        }
+                    }
+                    IconButton(onClick = viewModel::nextDay) {
+                        Icon(Icons.Filled.ChevronRight, contentDescription = "Giorno successivo")
+                    }
+                }
             )
         }
     ) { padding ->
@@ -117,7 +132,7 @@ fun DietScreen(
                                     )
                                     Spacer(modifier = Modifier.height(8.dp))
                                     Text(
-                                        "Nessun pasto pianificato per oggi.\nChiedi all'AI di creare un piano dieta!",
+                                        "Nessun pasto pianificato per ${if (isToday) "oggi" else "questo giorno"}.\nChiedi all'AI di creare un piano dieta!",
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                                         textAlign = androidx.compose.ui.text.style.TextAlign.Center

@@ -3,6 +3,7 @@ package com.appfit.ui.workouts
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.appfit.data.model.Activity
+import com.appfit.ai.GoogleCalendarService
 import com.appfit.data.repository.ActivityRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -14,7 +15,8 @@ import javax.inject.Inject
 
 @HiltViewModel
 class WorkoutsViewModel @Inject constructor(
-    private val repository: ActivityRepository
+    private val repository: ActivityRepository,
+    private val googleCalendarService: GoogleCalendarService
 ) : ViewModel() {
 
     private val _weekStart = MutableStateFlow(
@@ -40,6 +42,7 @@ class WorkoutsViewModel @Inject constructor(
     fun updateActivity(activity: Activity) {
         viewModelScope.launch {
             repository.updateActivity(activity)
+            googleCalendarService.syncActivity(activity)
         }
     }
 

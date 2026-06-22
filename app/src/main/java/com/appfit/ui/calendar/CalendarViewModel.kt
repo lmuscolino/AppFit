@@ -7,8 +7,10 @@ import com.appfit.data.model.ActivityType
 import com.appfit.data.model.DailyPlan
 import com.appfit.data.model.Meal
 import com.appfit.data.model.MealType
+import com.appfit.ai.GoogleCalendarService
 import com.appfit.data.repository.ActivityRepository
 import com.appfit.data.repository.DietRepository
+import com.appfit.data.repository.ReminderRepository
 import com.appfit.domain.usecase.GetDailyPlanUseCase
 import com.appfit.ui.common.UiState
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -24,7 +26,9 @@ import javax.inject.Inject
 class CalendarViewModel @Inject constructor(
     private val getDailyPlanUseCase: GetDailyPlanUseCase,
     private val activityRepository: ActivityRepository,
-    private val dietRepository: DietRepository
+    private val dietRepository: DietRepository,
+    private val reminderRepository: ReminderRepository,
+    private val googleCalendarService: GoogleCalendarService
 ) : ViewModel() {
 
     private val _selectedDate = MutableStateFlow(LocalDate.now())
@@ -51,9 +55,10 @@ class CalendarViewModel @Inject constructor(
             val end = month.atEndOfMonth()
             combine(
                 activityRepository.getDatesWithActivities(start, end),
-                dietRepository.getDatesWithMeals(start, end)
-            ) { actDates, mealDates ->
-                (actDates + mealDates).toSet()
+                dietRepository.getDatesWithMeals(start, end),
+                reminderRepository.getDatesWithReminders(start, end)
+            ) { actDates, mealDates, reminderDates ->
+                (actDates + mealDates + reminderDates).toSet()
             }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
@@ -88,18 +93,18 @@ class CalendarViewModel @Inject constructor(
         description: String
     ) {
         viewModelScope.launch {
-            activityRepository.insertActivity(
-                Activity(
-                    title = title,
-                    description = description,
-                    type = type,
-                    durationMinutes = durationMinutes,
-                    scheduledDate = scheduledDate,
-                    scheduledTime = scheduledTime,
-                    caloriesBurned = caloriesBurned,
-                    aiGenerated = false
-                )
+            val activity = Activity(
+                title = title,
+                description = description,
+                type = type,
+                durationMinutes = durationMinutes,
+                scheduledDate = scheduledDate,
+                scheduledTime = scheduledTime,
+                caloriesBurned = caloriesBurned,
+                aiGenerated = false
             )
+            val id = activityRepository.insertActivity(activity)
+            googleCalendarService.syncActivity(activity.copy(id = id))
         }
     }
 

@@ -1,0 +1,4 @@
+# Copia questo file in test_config.properties e compila con le tue credenziali
+# (test_config.properties è in .gitignore)
+gemini_api_key=YOUR_GEMINI_API_KEY_HERE
+gmail_token=ya29.YOUR_OAUTH_TOKEN_HERE
